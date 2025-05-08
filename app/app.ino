@@ -54,7 +54,7 @@ bool isSameLocation(float lat1, float lng1, float lat2, float lng2, float tol = 
   float d = calculateDistance(lat1, lng1, lat2, lng2);
   Serial.print("📏 Distance difference: ");
   Serial.print(d);
-  Serial.println(" 米");
+  Serial.println(" meter");
   return d <= tol;
 }
 
