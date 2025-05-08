@@ -1,4 +1,4 @@
-// Smart Child Alert System (优化版)
+// Smart Child Alert System (optimized version)
 #define BLYNK_TEMPLATE_ID "TMPL6iMZTQG-9"
 #define BLYNK_TEMPLATE_NAME "TEST"
 #define BLYNK_AUTH_TOKEN "2XLv5UunJqLYp0eWksGo3Xydge41XCT1"
@@ -13,14 +13,14 @@
 char ssid[] = "TP-Link_2A3A";
 char pass[] = "33601533";
 
-// 引脚
+// PIN
 #define PRESSURE_PIN 13
 #define BUZZER_PIN 2
 
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
 
-// 状态变量
+// State Variables
 int state = 0;
 unsigned long lastCheckTime = 0;
 unsigned long lastGPSCompareTime = 0;
@@ -36,11 +36,11 @@ bool waitDelay = false;
 bool continueMonitor = false;
 bool secondAlertSent = false;
 int delayMinutes = 0;
-bool gpsPausedPrinted = false; // 防刷屏提示标志
+bool gpsPausedPrinted = false; // Anti-scrubbing reminder sign
 bool gpsOutputEnabled = true;
 
 
-// ---------- 工具函数 ----------
+// ---------- utility function ----------
 float calculateDistance(float lat1, float lng1, float lat2, float lng2) {
   const float R = 6371000;
   float dLat = radians(lat2 - lat1);
@@ -54,11 +54,11 @@ bool isSameLocation(float lat1, float lng1, float lat2, float lng2, float tol = 
   float d = calculateDistance(lat1, lng1, lat2, lng2);
   Serial.print("📏 Distance difference: ");
   Serial.print(d);
-  Serial.println(" 米");
+  Serial.println(" meter");
   return d <= tol;
 }
 
-// ---------- Blynk 回调 ----------
+// ---------- Blynk callback ----------
 BLYNK_WRITE(V0) {
   if (param.asInt() == 1 && alertActive) {
     alertHandled = true;
@@ -90,7 +90,7 @@ BLYNK_WRITE(V5) {
   Serial.println("⏱️ Parents choose to deal with it immediately and re-test after 2 minutes");
 }
 
-// ---------- 初始化 ----------
+// ---------- initialization  ----------
 void setup() {
   Serial.begin(115200);
   WiFi.begin(ssid, pass);
@@ -113,7 +113,7 @@ void setup() {
   digitalWrite(BUZZER_PIN, LOW);
 }
 
-// ---------- 主循环 ----------
+// ---------- main loop ----------
 void loop() {
   Blynk.run();
   while (gpsSerial.available()) gps.encode(gpsSerial.read());
@@ -125,14 +125,14 @@ void loop() {
     lastBlynkUpdate = now;
   }
 
-  // 处理短暂停留结束
+  // End of processing of brief stays
   if (waitDelay && now - delayStartTime >= delayMinutes * 60000UL) {
     Serial.println("✅ At the end of the short stay, testing resumes");
     waitDelay = false;
     state = 0;
   }
 
-  // 立即处理后再次检测
+  // Re-test after immediate processing
   if (continueMonitor && now - continueStartTime >= 2 * 60000UL) {
     if (digitalRead(PRESSURE_PIN) == LOW && !secondAlertSent) {
       Blynk.logEvent("child_warning", "🚨 The child hasn't been removed, so check it out now!");
@@ -143,20 +143,20 @@ void loop() {
     continueMonitor = false;
   }
 
-  // 警报未处理超过1分钟
+  // Alarms unprocessed for more than 1 minute
   if (alertActive && !alertHandled && now - alertSentTime > 60000) {
     Serial.println("🔊 Timeout does not respond, start an alert!");
     digitalWrite(BUZZER_PIN, HIGH);
   }
 
-  // 警报未响应超2分钟，强制响铃
+  // Alarms not responded to for more than 2 minutes, forced ringing
   if (alertActive && !waitDelay && !continueMonitor && !alertHandled && now - alertSentTime > 120000) {
     Serial.println("🆘 Parents don't choose how to respond, and it will be automatically alerted after 2 minutes!");
     digitalWrite(BUZZER_PIN, HIGH);
     alertActive = false;
   }
 
-  // ---------- GPS 状态机控制 ----------
+  // ---------- GPS state-machine control ----------
   if (waitDelay || continueMonitor || alertActive) {
     if (!gpsPausedPrinted) {
       Serial.println("⏸️ The GPS status machine has been paused, waiting for a parent to respond...");
@@ -168,7 +168,7 @@ void loop() {
   }
 }
 
-// ---------- GPS 状态机封装 ----------
+// ---------- GPS state-machine encapsulation ----------
 void handleGPSStateMachine() {
   unsigned long now = millis();
 
@@ -189,12 +189,12 @@ void handleGPSStateMachine() {
     }
 
     if (!isSameLocation(lastLat, lastLng, newLat, newLng)) {
-      Serial.println("📍 车辆移动，流程重启");
-      gpsOutputEnabled = true;  // 位置变化 → 启用串口输出
+      Serial.println("📍 Vehicle moved, process restarted");
+      gpsOutputEnabled = true;  // Position change → Enable serial output
       state = 0;
     } else {
       if (gpsOutputEnabled) {
-        Serial.println("📍 位置稳定，等待2分钟...");
+        Serial.println("📍 Position stabilized. Wait 2 minutes...");
       }
       lastGPSCompareTime = now;
       state = 2;
@@ -209,7 +209,7 @@ void handleGPSStateMachine() {
 
     if (!isSameLocation(lastLat, lastLng, newLat, newLng)) {
       Serial.println("📍 The vehicle moves again and the process restarts");
-      gpsOutputEnabled = true;  // 恢复打印
+      gpsOutputEnabled = true;  // Resume Printing
       state = 0;
     } else {
       bool pressure = (digitalRead(PRESSURE_PIN) == LOW);
@@ -222,7 +222,7 @@ void handleGPSStateMachine() {
         if (gpsOutputEnabled) {
           Serial.println("✅ Unmanned, the process ends, and the GPS output is stopped");
         }
-        gpsOutputEnabled = false;  // 无人 → 停止输出
+        gpsOutputEnabled = false;  // No one → stop output
       }
       state = 0;
     }
@@ -230,7 +230,7 @@ void handleGPSStateMachine() {
 }
 
 
-// ---------- Blynk 数据展示 ----------
+// ---------- Blynk Data Display ----------
 void updateBlynkData() {
   bool pressure = (digitalRead(PRESSURE_PIN) == LOW);
   Blynk.virtualWrite(V1, pressure ? "someone" : "nobody");
@@ -241,13 +241,13 @@ void updateBlynkData() {
     strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &timeinfo);
     Blynk.virtualWrite(V2, buffer);
   } else {
-    Blynk.virtualWrite(V2, "时间获取失败");
+    Blynk.virtualWrite(V2, "Failed to get time");
   }
 
   if (gps.location.isValid()) {
     String gpsData = String(gps.location.lat(), 6) + "," + String(gps.location.lng(), 6);
     Blynk.virtualWrite(V3, gpsData);
   } else {
-    Blynk.virtualWrite(V3, "无定位");
+    Blynk.virtualWrite(V3, "unlocalized");
   }
 }
