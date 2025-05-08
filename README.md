@@ -3,6 +3,6 @@ Wi-Fi wireless network: ssid pass <br>
 PRESSURE_PIN = 13: Seat Pressure Test <br>
 BUZZER_PIN = 2: Buzzer output 
 
-V0  processed  Parents confirm that the child has been taken away → End alert <br>
+V0--processed  Parents confirm that the child has been taken away → End alert <br>
 V4  Select n-minute short stop (pause detection) <br>
-V5  Parents take care of it right away” → automatic retesting after 2 minutes
+V5  Parents handle it right away → automatic retesting after 2 minutes
