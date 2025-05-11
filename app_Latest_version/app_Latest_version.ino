@@ -1,10 +1,14 @@
 // Smart Child Alert System (优化版)
-#define BLYNK_TEMPLATE_ID "TMPL6iMZTQG-9"
-#define BLYNK_TEMPLATE_NAME "TEST"
-#define BLYNK_AUTH_TOKEN "2XLv5UunJqLYp0eWksGo3Xydge41XCT1"
+#define BLYNK_TEMPLATE_ID "TMPL60SNIol4o"
+#define BLYNK_TEMPLATE_NAME "Smart Child Seat"
+#define BLYNK_AUTH_TOKEN "vxP7O6nUsG0DlduR_U9FFyliYMKkhKc3"
+
+// #define BLYNK_TEMPLATE_ID "TMPL6iMZTQG-9"
+// #define BLYNK_TEMPLATE_NAME "TEST"
+// #define BLYNK_AUTH_TOKEN "2XLv5UunJqLYp0eWksGo3Xydge41XCT1"
 
 #define COUNTDOWN_VPIN V7
-#define LOG_ADDRESS "http://192.168.1.101:5000/upload"
+#define LOG_ADDRESS "http://192.168.137.198:5000/upload"
 
 #include <TinyGPSPlus.h>
 #include <HardwareSerial.h>
@@ -14,11 +18,12 @@
 #include <math.h>
 #include <HTTPClient.h>
 
-char ssid[] = "TP-Link_2A3A";
-char pass[] = "33601533";
+// char ssid[] = "TP-Link_2A3A";
+// char pass[] = "33601533";
 
 // char ssid[] = "iPhoneHotspot";
-// char pass[] = "12345678";
+char ssid[] = "iot5506";
+char pass[] = "12345678";
 
 // 引脚
 #define PRESSURE_PIN 13
@@ -122,6 +127,16 @@ void setup() {
   pinMode(PRESSURE_PIN, INPUT_PULLUP);
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
+
+  Serial.print("ESP32 IP Address: ");
+Serial.println(WiFi.localIP());
+
+if (WiFi.status() != WL_CONNECTED) {
+  Serial.println("WiFi not connected!");
+} else {
+  Serial.println("WiFi connected.");
+}
+
 }
 
 // ---------- 主循环 ----------
@@ -280,29 +295,35 @@ void updateBlynkData() {
 }
 
 void sendAlertToServer(int alertCount) {
+//  void sendAlertToServer() {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-    String serverUrl = LOG_ADDRESS; 
-    Serial.println("🌐 [ESP32] Connecting to: " + serverUrl);
 
-    http.begin(serverUrl);
+    Serial.println("[ESP32] Connecting to: http://192.168.137.198:5000/upload");
+    http.begin("http://192.168.137.198:5000/upload");  // Flask服务器地址
+
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    String postData = "device=seat001&count=1";
 
-    String postData = "device=seat001&count=" + String(alertCount);
-    Serial.println("📤 [ESP32] POST data: " + postData);
+    Serial.print("[ESP32] POST data: ");
+    Serial.println(postData);
 
-    int httpCode = http.POST(postData);
-    Serial.println("📥 [ESP32] HTTP Response Code: " + String(httpCode));
+    int httpResponseCode = http.POST(postData);
 
-    if (httpCode > 0) {
+    Serial.print("[ESP32] HTTP Response Code: ");
+    Serial.println(httpResponseCode);
+
+    if (httpResponseCode > 0) {
       String response = http.getString();
-      Serial.println("✅ [ESP32] Server Response: " + response);
+      Serial.print("[ESP32] Server Response: ");
+      Serial.println(response);
     } else {
-      Serial.println("❌ [ESP32] Upload failed, error: " + String(http.errorToString(httpCode)));
+      Serial.print("❌ [ESP32] Upload failed, error: ");
+      Serial.println(http.errorToString(httpResponseCode));
     }
 
     http.end();
   } else {
-    Serial.println("❌ [ESP32] WiFi not connected");
+    Serial.println("❌ WiFi not connected");
   }
-} 
+}
