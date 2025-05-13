@@ -6,3 +6,7 @@ BUZZER_PIN = 2: Buzzer output
 V0--processed  Parents confirm that the child has been taken away → End alert <br>
 V4  Select n-minute short stop (pause detection) <br>
 V5  Parents handle it right away → automatic retesting after 2 minutes
+
+## Required Libraries
+- Blynk, version 1.3.2
+

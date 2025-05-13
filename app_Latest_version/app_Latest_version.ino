@@ -22,8 +22,11 @@
 // char pass[] = "33601533";
 
 // char ssid[] = "iPhoneHotspot";
-char ssid[] = "iot5506";
-char pass[] = "12345678";
+// char ssid[] = "iot5506";
+// char pass[] = "12345678";
+
+char ssid[] = "iPhone (56) karla";;
+char pass[] = "karlaiscool";
 
 // 引脚
 #define PRESSURE_PIN 13
