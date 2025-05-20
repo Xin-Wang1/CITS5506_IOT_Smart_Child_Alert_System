@@ -91,17 +91,21 @@ BLYNK_WRITE(V4) {
     alertActive = false;
     playCompressedAudio();
     Serial.println("⏳ Parents choose to stay for a short time " + String(delayMinutes) + " minutes, pause detection");
+    Blynk.virtualWrite(V0, 0); // 重置按钮状态
   }
 }
 
 BLYNK_WRITE(V5) {
-  continueMonitor = true;
-  continueStartTime = millis();
-  secondAlertSent = false;
-  alertHandled = false;
-  alertActive = false;
-  playCompressedAudio();
-  Serial.println("⏱️ Parents choose to deal with it immediately and re-test after 2 minutes");
+  if (param.asInt() == 1) { // 确保只在按钮按下时处理
+    continueMonitor = true;
+    continueStartTime = millis();
+    secondAlertSent = false;
+    alertHandled = false;
+    alertActive = false;
+    playCompressedAudio();
+    Serial.println("⏱️ Parents choose to deal with it immediately and re-test after 2 minutes");
+    Blynk.virtualWrite(V5, 0); // 重置按钮状态
+  }
 }
 
 // ---------- init ----------
@@ -148,6 +152,7 @@ void loop() {
   unsigned long now = millis();
 
   if (now - lastBlynkUpdate > 5000) {
+    isSomeoneSeated(); // 先调用读取压力值
     updateBlynkData();
     lastBlynkUpdate = now;
   }
@@ -275,8 +280,10 @@ void handleGPSStateMachine() {
 
 // ---------- Blynk Data display ----------
 void updateBlynkData() {
-  bool pressure = isSomeoneSeated();
-  Blynk.virtualWrite(V1, pressure ? "Child in seat" : "No chlid");
+  int pressureValue = analogRead(PRESSURE_PIN);
+  bool pressure = pressureValue > PRESSURE_THRESHOLD;
+  
+  Blynk.virtualWrite(V1, pressure ? "Child in seat" : "Empty seat");
   Blynk.virtualWrite(V6, pressure ? "1" : "0");
 
   struct tm timeinfo;
@@ -320,7 +327,7 @@ void sendAlertToServer(int alertCount) {
     http.begin("http://192.168.137.198:5000/upload");  // Flask服务器地址
 
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-    String postData = "device=seat001&count=1";
+    String postData = "device=seat001&count=" + String(alertCount);
 
     Serial.print("[ESP32] POST data: ");
     Serial.println(postData);
