@@ -13,10 +13,10 @@
 #include <time.h>
 #include <math.h>
 #include <HTTPClient.h>
-#include "compressed_audio.h"
-#include "esp_sleep.h"
+#include "attention_audio_compressed.h"
 
 void playCompressedAudio();
+void handleAudioPlayback();  // 添加音频处理函数的声明
 bool isSomeoneSeated();
 void updateBlynkData();
 void sendAlertToServer(int alertCount);
@@ -29,9 +29,18 @@ char pass[] = "12345678";
 // 引脚
 #define PRESSURE_PIN 32  
 #define AUDIO_PIN 25          
-#define SAMPLE_RATE 8000     
+#define AUDIO_SAMPLE_RATE 8000     // 统一采样率定义
 #define PRESSURE_THRESHOLD 100  
-#define WAKEUP_PIN GPIO_NUM_13  // 定义唤醒引脚，可以根据您的硬件配置进行调整
+#define WAKEUP_PIN 13  // 定义唤醒引脚，可以根据您的硬件配置进行调整
+
+// 确保音频常量有定义，防止编译错误
+#ifndef COMPRESSED_AUDIO_LENGTH
+#define COMPRESSED_AUDIO_LENGTH (sizeof(compressedAudio))
+#endif
+
+#ifndef COMPRESSED_AUDIO_SAMPLE_RATE
+#define COMPRESSED_AUDIO_SAMPLE_RATE AUDIO_SAMPLE_RATE  // 使用统一的采样率
+#endif
 
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
@@ -83,14 +92,19 @@ BLYNK_WRITE(V0) {
   Serial.print("⚡ V0按钮被触发 - 接收到的值: ");
   Serial.println(param.asInt());
   
-  if (param.asInt() == 1 && alertActive) {
-    Serial.println("✅ V0按钮有效 - 警报已激活，准备处理响应");
+  if (param.asInt() == 1) {
+    Serial.println("✅ V0按钮被按下 - 确认警报");
+    // 无论alertActive状态如何，都尝试处理响应
     alertHandled = true;
     alertActive = false;
-    playCompressedAudio();
+    // 停止任何正在播放的音频
+    isPlayingAudio = false;
     Serial.println("✅ Parents have responded, ending the alert");
+    
+    // 确保按钮恢复未按下状态
+    Blynk.virtualWrite(V0, 0);
   } else {
-    Serial.println("❌ V0按钮无效 - 警报未激活(alertActive=" + String(alertActive) + ")或状态不为1");
+    Serial.println("V0按钮释放");
   }
 }
 
@@ -107,9 +121,13 @@ BLYNK_WRITE(V4) {
     delayStartTime = millis();
     alertHandled = true;
     alertActive = false;
-    playCompressedAudio();
+    // 停止任何正在播放的音频
+    isPlayingAudio = false;
     Serial.println("⏳ Parents choose to stay for a short time " + String(delayMinutes) + " minutes, pause detection");
-    Blynk.virtualWrite(V0, 0); // 重置按钮状态
+    
+    // 确保其他按钮恢复未按下状态
+    Blynk.virtualWrite(V0, 0);
+    Blynk.virtualWrite(V5, 0);
   } else {
     Serial.println("❌ V4按钮无效 - 延迟时间必须大于0");
   }
@@ -126,11 +144,15 @@ BLYNK_WRITE(V5) {
     secondAlertSent = false;
     alertHandled = false;
     alertActive = false;
-    playCompressedAudio();
+    // 停止任何正在播放的音频
+    isPlayingAudio = false;
     Serial.println("⏱️ Parents choose to deal with it immediately and re-test after 2 minutes");
-    Blynk.virtualWrite(V5, 0); // 重置按钮状态
+    
+    // 确保其他按钮恢复未按下状态
+    Blynk.virtualWrite(V0, 0);
+    Blynk.virtualWrite(V5, 0);
   } else {
-    Serial.println("❌ V5按钮无效 - 值不为1");
+    Serial.println("V5按钮释放");
   }
 }
 
@@ -151,15 +173,19 @@ BLYNK_WRITE(V9) {
     Blynk.virtualWrite(V1, "System shutdown");
     Blynk.virtualWrite(V2, "Goodbye!");
     
-    // 播放关机音效提示
-    playCompressedAudio();
+    // 确保按钮恢复未按下状态
+    Blynk.virtualWrite(V9, 0);
     
     // 设置关机标志，而不是直接等待
     shutdownRequested = true;
     shutdownRequestTime = millis();
     Serial.println("⏰ 将在3秒后关机...");
+    
+    // 在关闭前播放提示音
+    isPlayingAudio = false; // 停止当前可能在播放的音频
+    playCompressedAudio();
   } else {
-    Serial.println("❌ V9按钮无效 - 值不为1");
+    Serial.println("V9按钮释放");
   }
 }
 
@@ -168,12 +194,14 @@ void setup() {
   Serial.begin(115200);
   
   // 配置唤醒引脚 - 使设备在深度睡眠后可以通过物理按钮启动
-  esp_sleep_enable_ext0_wakeup(WAKEUP_PIN, LOW); // 低电平触发唤醒
+  pinMode(WAKEUP_PIN, INPUT_PULLUP);
   
-  // 检查是否是从深度睡眠唤醒
-  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
-    Serial.println("🔄 Device was woken up by external signal (button)");
+  // 配置ADC以提高压力传感器稳定性
+  analogSetPinAttenuation(PRESSURE_PIN, ADC_11db);
+  
+  // 检查睡眠唤醒状态
+  if (ESP.getResetReason() == "Deep-Sleep Wake") {
+    Serial.println("🔄 设备从深度睡眠中唤醒");
   }
   
   WiFi.begin(ssid, pass);
@@ -198,7 +226,8 @@ void setup() {
   }
   
   Serial.println("🔄 正在配置Blynk...");
-  Blynk.config(BLYNK_AUTH_TOKEN, ip.toString().c_str(), 80);
+  static String ipStr = ip.toString(); // 保留生命周期
+  Blynk.config(BLYNK_AUTH_TOKEN, ipStr.c_str(), 80);
   
   Serial.println("🔄 正在连接Blynk服务器...");
   if (Blynk.connect()) {
@@ -272,10 +301,11 @@ void loop() {
     if (now - shutdownRequestTime >= SHUTDOWN_DELAY) {
       // 时间到，执行关机
       Serial.println("📡 Disconnecting WiFi...");
-      WiFi.disconnect(true);
+      WiFi.disconnect(true, true); // 完全断开WiFi，第二个参数表示同时关闭station和AP
+      delay(100); // 给100ms缓冲时间确保断开完成
       
       Serial.println("💤 Entering deep sleep mode. Restart ESP32 to wake up.");
-      esp_deep_sleep_start();
+      ESP.deepSleep(0); // 永久深度睡眠，直到外部复位
     }
   }
 
@@ -312,13 +342,16 @@ void loop() {
       alertSentTime = now;
       secondAlertSent = true;
       sendAlertToServer(2);  // 第二次警报
-
+      Serial.println("📱 已发送第二次通知，如果1分钟内无响应，将触发音频警报");
+    } else if (!isSomeoneSeated()) {
+      Serial.println("✅ 检测到座位已空，结束监控");
+      continueMonitor = false; // 只有座位空了才结束监控
     }
-    continueMonitor = false;
+    // 注意：这里不能把continueMonitor设为false，否则下面1分钟警报逻辑不会触发
   }
 
-  // 警报未处理超过1分钟
-  if (alertActive && !alertHandled && now - alertSentTime > 60000) {
+  // 警报未处理超过1分钟 - 在第二次通知后触发
+  if (alertActive && !alertHandled && secondAlertSent && now - alertSentTime > 60000) {
     Serial.println("🔊 Timeout does not respond, start an alert!");
     playCompressedAudio();
   }
@@ -327,7 +360,7 @@ void loop() {
   if (alertActive && !waitDelay && !continueMonitor && !alertHandled && now - alertSentTime > 120000) {
     Serial.println("🆘 Parents don't choose how to respond, and it will be automatically alerted after 2 minutes!");
     playCompressedAudio();
-    alertActive = false;
+    // 不重置alertActive，使按钮仍可响应
   }
 
   // ---------- GPS State machine control ----------
@@ -342,11 +375,16 @@ void loop() {
   }
 }
 
+// 增强GPS位置有效性检查
+bool isGPSValid() {
+  return gps.location.isValid() && gps.location.age() < 5000; // 位置有效且数据不超过5秒
+}
+
 // ---------- GPS State machine encapsulation ----------
 void handleGPSStateMachine() {
   unsigned long now = millis();
 
-  if (state == 0 && now - lastCheckTime > 3000 && gps.location.isValid()) {
+  if (state == 0 && now - lastCheckTime > 3000 && isGPSValid()) {
     lastLat = gps.location.lat();
     lastLng = gps.location.lng();
     if (gpsOutputEnabled) {
@@ -355,7 +393,7 @@ void handleGPSStateMachine() {
     lastCheckTime = now;
     state = 1;
 
-  } else if (state == 1 && now - lastCheckTime > 30000 && gps.location.isValid()) {
+  } else if (state == 1 && now - lastCheckTime > 30000 && isGPSValid()) {
     float newLat = gps.location.lat();
     float newLng = gps.location.lng();
     if (gpsOutputEnabled) {
@@ -374,7 +412,7 @@ void handleGPSStateMachine() {
       state = 2;
     }
 
-  } else if (state == 2 && now - lastGPSCompareTime > 120000 && gps.location.isValid()) {
+  } else if (state == 2 && now - lastGPSCompareTime > 120000 && isGPSValid()) {
     float newLat = gps.location.lat();
     float newLng = gps.location.lng();
     if (gpsOutputEnabled) {
@@ -393,7 +431,8 @@ void handleGPSStateMachine() {
         alertHandled = false;
         alertSentTime = now;
         sendAlertToServer(1);  // 第一次警报计数为 1
-
+        Serial.println("📱 已发送首次通知，等待父母响应");
+        
       } else {
         if (gpsOutputEnabled) {
           Serial.println("✅ Unmanned, the process ends, and the GPS output is stopped");
@@ -404,7 +443,6 @@ void handleGPSStateMachine() {
     }
   }
 }
-
 
 // ---------- Blynk Data display ----------
 void updateBlynkData() {
@@ -449,7 +487,7 @@ const unsigned int AUDIO_CHUNK_SIZE = 100; // 每次处理的音频样本数
 void playCompressedAudio() {
   // 立即播放一小段，给用户快速反馈
   for (int i = 0; i < 50; i++) {
-    dacWrite(25, compressedAudio[i % COMPRESSED_AUDIO_LENGTH]);
+    dacWrite(AUDIO_PIN, compressedAudio[i % COMPRESSED_AUDIO_LENGTH]);
     delayMicroseconds(500); // 快速播放前50个样本作为即时反馈
   }
   
@@ -466,7 +504,7 @@ void handleAudioPlayback() {
   
   // 每次处理一小块音频数据
   for (int i = 0; i < AUDIO_CHUNK_SIZE && audioIndex < COMPRESSED_AUDIO_LENGTH; i++, audioIndex++) {
-    dacWrite(25, compressedAudio[audioIndex]);
+    dacWrite(AUDIO_PIN, compressedAudio[audioIndex]);
     delayMicroseconds(1000000 / COMPRESSED_AUDIO_SAMPLE_RATE);
   }
   
