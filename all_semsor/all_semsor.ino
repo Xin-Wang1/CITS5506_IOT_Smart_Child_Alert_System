@@ -14,6 +14,7 @@
 #include <math.h>
 #include <HTTPClient.h>
 #include "attention_audio_compressed.h"
+#include "esp32/rom/rtc.h"        // 添加RTC头文件以支持rtc_get_reset_reason
 
 void playCompressedAudio();
 void handleAudioPlayback();  // 添加音频处理函数的声明
@@ -33,10 +34,24 @@ char pass[] = "12345678";
 #define PRESSURE_THRESHOLD 100  
 #define WAKEUP_PIN 13  // 定义唤醒引脚，可以根据您的硬件配置进行调整
 
-// 确保音频常量有定义，防止编译错误
-#ifndef COMPRESSED_AUDIO_LENGTH
-#define COMPRESSED_AUDIO_LENGTH (sizeof(compressedAudio))
-#endif
+// 定义音频变量
+extern const uint8_t attentionAudio[]; // 来自attention_audio_compressed.h，使用const节省内存
+
+// 全局非阻塞音频播放变量
+bool isPlayingAudio = false;
+unsigned long audioStartTime = 0;
+unsigned int audioIndex = 0;
+const unsigned int AUDIO_CHUNK_SIZE = 100; // 每次处理的音频样本数
+
+// 系统关机状态变量
+bool systemShutdown = false;  // 表示系统是否处于"关机"状态
+
+// 清除可能存在的旧宏定义
+#undef COMPRESSED_AUDIO_LENGTH
+#define COMPRESSED_AUDIO_LENGTH (sizeof(attentionAudio))
+
+// 定义一个简单的音频长度宏，方便使用
+#define AUDIO_LEN COMPRESSED_AUDIO_LENGTH
 
 #ifndef COMPRESSED_AUDIO_SAMPLE_RATE
 #define COMPRESSED_AUDIO_SAMPLE_RATE AUDIO_SAMPLE_RATE  // 使用统一的采样率
@@ -157,33 +172,65 @@ BLYNK_WRITE(V5) {
 }
 
 // 关机模式变量
-bool shutdownRequested = false;
 unsigned long shutdownRequestTime = 0;
-const int SHUTDOWN_DELAY = 3000; // 3秒后关机
+const int SHUTDOWN_DELAY = 3000; // 状态切换延迟
 
 BLYNK_WRITE(V9) {
   Serial.print("⚡ V9按钮被触发 - 接收到的值: ");
   Serial.println(param.asInt());
   
   if(param.asInt() == 1) {
-    Serial.println("✅ V9按钮有效 - 准备关闭系统");
-    Serial.println("💤 Shutdown button pressed. System will power off in 3 seconds...");
-    
-    // 向Blynk发送最终状态更新
-    Blynk.virtualWrite(V1, "System shutdown");
-    Blynk.virtualWrite(V2, "Goodbye!");
-    
-    // 确保按钮恢复未按下状态
-    Blynk.virtualWrite(V9, 0);
-    
-    // 设置关机标志，而不是直接等待
-    shutdownRequested = true;
-    shutdownRequestTime = millis();
-    Serial.println("⏰ 将在3秒后关机...");
-    
-    // 在关闭前播放提示音
-    isPlayingAudio = false; // 停止当前可能在播放的音频
-    playCompressedAudio();
+    if (!systemShutdown) {
+      // 当前为开机状态，准备关机
+      Serial.println("✅ V9按钮有效 - 准备关闭系统");
+      
+      // 向Blynk发送状态更新
+      Blynk.virtualWrite(V1, "System shutdown");
+      Blynk.virtualWrite(V2, "Goodbye!");
+      
+      // 确保按钮恢复未按下状态
+      Blynk.virtualWrite(V9, 0);
+      
+      // 播放关机提示音
+      isPlayingAudio = false; // 停止当前可能在播放的音频
+      playCompressedAudio();
+      
+      // 设置延迟计时器
+      shutdownRequestTime = millis();
+      
+      // 延迟切换状态
+      Serial.println("⏰ 将在3秒后进入关机状态...");
+      delay(SHUTDOWN_DELAY); // 为用户提供视觉反馈的延迟
+      
+      // 切换至关机状态
+      systemShutdown = true;
+      Serial.println("💤 系统已进入关机状态，可通过再次按V9重新启动");
+    } else {
+      // 当前为关机状态，准备重启
+      Serial.println("🔄 V9按钮有效 - 准备重启系统");
+      
+      // 向Blynk发送状态更新
+      Blynk.virtualWrite(V1, "System restarting");
+      Blynk.virtualWrite(V2, "Booting...");
+      
+      // 确保按钮恢复未按下状态
+      Blynk.virtualWrite(V9, 0);
+      
+      // 播放启动提示音
+      isPlayingAudio = false;
+      playCompressedAudio();
+      
+      // 延迟切换状态
+      Serial.println("⏰ 正在启动系统...");
+      delay(SHUTDOWN_DELAY); // 为用户提供视觉反馈的延迟
+      
+      // 切换至开机状态
+      systemShutdown = false;
+      Serial.println("✅ 系统已重新启动");
+      
+      // 恢复正常显示
+      updateBlynkData();
+    }
   } else {
     Serial.println("V9按钮释放");
   }
@@ -199,8 +246,11 @@ void setup() {
   // 配置ADC以提高压力传感器稳定性
   analogSetPinAttenuation(PRESSURE_PIN, ADC_11db);
   
-  // 检查睡眠唤醒状态
-  if (ESP.getResetReason() == "Deep-Sleep Wake") {
+  // 检查睡眠唤醒状态 - 使用esp_reset_reason替代getResetReason
+  // ESP32核心库中getResetReason可能不可用，使用变通方法
+  Serial.print("🔄 Reset reason: ");
+  Serial.println(rtc_get_reset_reason(0));
+  if (rtc_get_reset_reason(0) == 5) { // 5 = DEEPSLEEP_RESET
     Serial.println("🔄 设备从深度睡眠中唤醒");
   }
   
@@ -287,6 +337,12 @@ void loop() {
     }
   }
   
+  // 如果系统处于"关机"状态，则跳过大部分处理
+  if (systemShutdown) {
+    delay(100); // 简单延迟，避免CPU占用过高
+    return; // 直接返回，不执行后面的代码
+  }
+  
   // 非阻塞方式读取GPS数据
   unsigned int gpsReadCount = 0;
   while (gpsSerial.available() && gpsReadCount < 10) { // 每次最多读取10个字节，避免阻塞
@@ -295,19 +351,6 @@ void loop() {
   }
   
   unsigned long now = millis();
-  
-  // 处理关机请求（非阻塞方式）
-  if (shutdownRequested) {
-    if (now - shutdownRequestTime >= SHUTDOWN_DELAY) {
-      // 时间到，执行关机
-      Serial.println("📡 Disconnecting WiFi...");
-      WiFi.disconnect(true, true); // 完全断开WiFi，第二个参数表示同时关闭station和AP
-      delay(100); // 给100ms缓冲时间确保断开完成
-      
-      Serial.println("💤 Entering deep sleep mode. Restart ESP32 to wake up.");
-      ESP.deepSleep(0); // 永久深度睡眠，直到外部复位
-    }
-  }
 
   if (now - lastBlynkUpdate > 5000) {
     isSomeoneSeated(); // 先调用读取压力值
@@ -477,17 +520,11 @@ bool isSomeoneSeated() {
 }
 
 
-// 添加非阻塞音频播放变量
-bool isPlayingAudio = false;
-unsigned long audioStartTime = 0;
-unsigned int audioIndex = 0;
-const unsigned int AUDIO_CHUNK_SIZE = 100; // 每次处理的音频样本数
-
 // 播放音频的非阻塞版本
 void playCompressedAudio() {
   // 立即播放一小段，给用户快速反馈
   for (int i = 0; i < 50; i++) {
-    dacWrite(AUDIO_PIN, compressedAudio[i % COMPRESSED_AUDIO_LENGTH]);
+    dacWrite(AUDIO_PIN, attentionAudio[i % AUDIO_LEN]);
     delayMicroseconds(500); // 快速播放前50个样本作为即时反馈
   }
   
@@ -503,13 +540,13 @@ void handleAudioPlayback() {
   if (!isPlayingAudio) return;
   
   // 每次处理一小块音频数据
-  for (int i = 0; i < AUDIO_CHUNK_SIZE && audioIndex < COMPRESSED_AUDIO_LENGTH; i++, audioIndex++) {
-    dacWrite(AUDIO_PIN, compressedAudio[audioIndex]);
+  for (int i = 0; i < AUDIO_CHUNK_SIZE && audioIndex < AUDIO_LEN; i++, audioIndex++) {
+    dacWrite(AUDIO_PIN, attentionAudio[audioIndex]);
     delayMicroseconds(1000000 / COMPRESSED_AUDIO_SAMPLE_RATE);
   }
   
   // 检查是否播放完成
-  if (audioIndex >= COMPRESSED_AUDIO_LENGTH) {
+  if (audioIndex >= AUDIO_LEN) {
     isPlayingAudio = false;
     Serial.println("🔊 音频播放完成");
   }
