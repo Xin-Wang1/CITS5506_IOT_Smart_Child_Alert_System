@@ -14,6 +14,7 @@
 #include <math.h>
 #include <HTTPClient.h>
 #include "compressed_audio.h"
+#include "esp_sleep.h"
 
 void playCompressedAudio();
 bool isSomeoneSeated();
@@ -30,6 +31,7 @@ char pass[] = "12345678";
 #define AUDIO_PIN 25          
 #define SAMPLE_RATE 8000     
 #define PRESSURE_THRESHOLD 100  
+#define WAKEUP_PIN GPIO_NUM_13  // 定义唤醒引脚，可以根据您的硬件配置进行调整
 
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
@@ -53,6 +55,10 @@ int delayMinutes = 0;
 bool gpsPausedPrinted = false;
 bool gpsOutputEnabled = true;
 
+// 添加Blynk连接状态变量
+bool wasBlynkConnected = false;
+unsigned long lastReconnectAttempt = 0;
+const unsigned long reconnectInterval = 30000; // 30秒重连一次
 
 // ---------- 工具函数 ----------
 float calculateDistance(float lat1, float lng1, float lat2, float lng2) {
@@ -74,17 +80,29 @@ bool isSameLocation(float lat1, float lng1, float lat2, float lng2, float tol = 
 
 // ---------- Blynk----------
 BLYNK_WRITE(V0) {
+  Serial.print("⚡ V0按钮被触发 - 接收到的值: ");
+  Serial.println(param.asInt());
+  
   if (param.asInt() == 1 && alertActive) {
+    Serial.println("✅ V0按钮有效 - 警报已激活，准备处理响应");
     alertHandled = true;
     alertActive = false;
     playCompressedAudio();
     Serial.println("✅ Parents have responded, ending the alert");
+  } else {
+    Serial.println("❌ V0按钮无效 - 警报未激活(alertActive=" + String(alertActive) + ")或状态不为1");
   }
 }
 
 BLYNK_WRITE(V4) {
+  Serial.print("⚡ V4按钮被触发 - 接收到的值: ");
+  Serial.print(param.asInt());
+  Serial.print(", 延迟分钟数: ");
+  Serial.println(delayMinutes);
+  
   delayMinutes = param.asInt();
   if (delayMinutes > 0) {
+    Serial.println("✅ V4按钮有效 - 设置延迟: " + String(delayMinutes) + "分钟");
     waitDelay = true;
     delayStartTime = millis();
     alertHandled = true;
@@ -92,11 +110,17 @@ BLYNK_WRITE(V4) {
     playCompressedAudio();
     Serial.println("⏳ Parents choose to stay for a short time " + String(delayMinutes) + " minutes, pause detection");
     Blynk.virtualWrite(V0, 0); // 重置按钮状态
+  } else {
+    Serial.println("❌ V4按钮无效 - 延迟时间必须大于0");
   }
 }
 
 BLYNK_WRITE(V5) {
+  Serial.print("⚡ V5按钮被触发 - 接收到的值: ");
+  Serial.println(param.asInt());
+  
   if (param.asInt() == 1) { // 确保只在按钮按下时处理
+    Serial.println("✅ V5按钮有效 - 设置立即处理模式");
     continueMonitor = true;
     continueStartTime = millis();
     secondAlertSent = false;
@@ -105,12 +129,55 @@ BLYNK_WRITE(V5) {
     playCompressedAudio();
     Serial.println("⏱️ Parents choose to deal with it immediately and re-test after 2 minutes");
     Blynk.virtualWrite(V5, 0); // 重置按钮状态
+  } else {
+    Serial.println("❌ V5按钮无效 - 值不为1");
+  }
+}
+
+BLYNK_WRITE(V9) {
+  Serial.print("⚡ V9按钮被触发 - 接收到的值: ");
+  Serial.println(param.asInt());
+  
+  if(param.asInt() == 1) {
+    Serial.println("✅ V9按钮有效 - 准备关闭系统");
+    Serial.println("💤 Shutdown button pressed. System will power off in 3 seconds...");
+    
+    // 向Blynk发送最终状态更新
+    Blynk.virtualWrite(V1, "System shutdown");
+    Blynk.virtualWrite(V2, "Goodbye!");
+    
+    // 播放关机音效提示
+    playCompressedAudio();
+    
+    // 延迟3秒后关机，给用户一些视觉反馈时间
+    Serial.println("⏰ Waiting 3 seconds before shutdown...");
+    delay(3000);
+    
+    // 断开WiFi连接
+    Serial.println("📡 Disconnecting WiFi...");
+    WiFi.disconnect(true);
+    
+    // 进入深度睡眠模式 (关机模式)
+    Serial.println("💤 Entering deep sleep mode. Restart ESP32 to wake up.");
+    esp_deep_sleep_start();
+  } else {
+    Serial.println("❌ V9按钮无效 - 值不为1");
   }
 }
 
 // ---------- init ----------
 void setup() {
   Serial.begin(115200);
+  
+  // 配置唤醒引脚 - 使设备在深度睡眠后可以通过物理按钮启动
+  esp_sleep_enable_ext0_wakeup(WAKEUP_PIN, LOW); // 低电平触发唤醒
+  
+  // 检查是否是从深度睡眠唤醒
+  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
+    Serial.println("🔄 Device was woken up by external signal (button)");
+  }
+  
   WiFi.begin(ssid, pass);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -121,17 +188,36 @@ void setup() {
   Serial.print("ESP32 IP: ");
   Serial.println(WiFi.localIP());
 
-
   configTime(8 * 3600, 0, "pool.ntp.org");
 
+  Serial.println("🔄 正在解析Blynk服务器地址...");
   IPAddress ip;
-  WiFi.hostByName("blynk.cloud", ip);
+  if (WiFi.hostByName("blynk.cloud", ip)) {
+    Serial.print("✅ Blynk服务器IP地址: ");
+    Serial.println(ip.toString());
+  } else {
+    Serial.println("❌ 无法解析Blynk服务器地址，尝试使用默认配置");
+  }
+  
+  Serial.println("🔄 正在配置Blynk...");
   Blynk.config(BLYNK_AUTH_TOKEN, ip.toString().c_str(), 80);
-  Blynk.connect();
+  
+  Serial.println("🔄 正在连接Blynk服务器...");
+  if (Blynk.connect()) {
+    Serial.println("✅ Blynk连接成功！");
+  } else {
+    Serial.println("❌ Blynk连接失败！将在主循环中自动尝试重连");
+  }
 
+  // 在Blynk连接成功后添加
   gpsSerial.begin(9600, SERIAL_8N1, 34, 12);
   pinMode(PRESSURE_PIN, INPUT_PULLUP);
   playCompressedAudio();
+
+  // 添加关机按钮提示
+  Blynk.virtualWrite(V9, 0); // 确保关机按钮初始状态为未激活
+  
+  Serial.println("🔌 Power off function enabled. Use V9 button in Blynk app to shutdown.");
 
   Serial.print("ESP32 IP Address: ");
 Serial.println(WiFi.localIP());
@@ -146,7 +232,35 @@ if (WiFi.status() != WL_CONNECTED) {
 
 // ---------- 主循环 ----------
 void loop() {
-  Blynk.run();
+  // 检查Blynk连接状态
+  bool isConnected = Blynk.connected();
+  
+  if (isConnected) {
+    if (!wasBlynkConnected) {
+      // 从断开状态恢复连接
+      Serial.println("🔄 Blynk重新连接成功！");
+      wasBlynkConnected = true;
+    }
+    // 正常运行Blynk
+    Blynk.run();
+  } else {
+    // 当前未连接
+    if (wasBlynkConnected) {
+      // 刚刚断开连接
+      Serial.println("❌ Blynk连接已断开！");
+      wasBlynkConnected = false;
+    }
+    
+    // 尝试重新连接
+    unsigned long now = millis();
+    if (now - lastReconnectAttempt > reconnectInterval) {
+      lastReconnectAttempt = now;
+      Serial.println("🔄 尝试重新连接Blynk...");
+      Blynk.connect();
+    }
+  }
+  
+  // 原本的循环代码
   while (gpsSerial.available()) gps.encode(gpsSerial.read());
 
   unsigned long now = millis();
