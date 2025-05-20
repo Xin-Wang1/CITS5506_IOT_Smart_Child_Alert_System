@@ -134,6 +134,11 @@ BLYNK_WRITE(V5) {
   }
 }
 
+// 关机模式变量
+bool shutdownRequested = false;
+unsigned long shutdownRequestTime = 0;
+const int SHUTDOWN_DELAY = 3000; // 3秒后关机
+
 BLYNK_WRITE(V9) {
   Serial.print("⚡ V9按钮被触发 - 接收到的值: ");
   Serial.println(param.asInt());
@@ -149,17 +154,10 @@ BLYNK_WRITE(V9) {
     // 播放关机音效提示
     playCompressedAudio();
     
-    // 延迟3秒后关机，给用户一些视觉反馈时间
-    Serial.println("⏰ Waiting 3 seconds before shutdown...");
-    delay(3000);
-    
-    // 断开WiFi连接
-    Serial.println("📡 Disconnecting WiFi...");
-    WiFi.disconnect(true);
-    
-    // 进入深度睡眠模式 (关机模式)
-    Serial.println("💤 Entering deep sleep mode. Restart ESP32 to wake up.");
-    esp_deep_sleep_start();
+    // 设置关机标志，而不是直接等待
+    shutdownRequested = true;
+    shutdownRequestTime = millis();
+    Serial.println("⏰ 将在3秒后关机...");
   } else {
     Serial.println("❌ V9按钮无效 - 值不为1");
   }
@@ -232,21 +230,19 @@ if (WiFi.status() != WL_CONNECTED) {
 
 // ---------- 主循环 ----------
 void loop() {
-  // 检查Blynk连接状态
-  bool isConnected = Blynk.connected();
+  // 处理音频播放（非阻塞）- 放在最前，确保音频响应及时
+  handleAudioPlayback();
   
-  if (isConnected) {
+  // 优先处理Blynk事件，确保按钮响应及时
+  if (Blynk.connected()) {
+    Blynk.run();
     if (!wasBlynkConnected) {
-      // 从断开状态恢复连接
       Serial.println("🔄 Blynk重新连接成功！");
       wasBlynkConnected = true;
     }
-    // 正常运行Blynk
-    Blynk.run();
   } else {
     // 当前未连接
     if (wasBlynkConnected) {
-      // 刚刚断开连接
       Serial.println("❌ Blynk连接已断开！");
       wasBlynkConnected = false;
     }
@@ -256,14 +252,32 @@ void loop() {
     if (now - lastReconnectAttempt > reconnectInterval) {
       lastReconnectAttempt = now;
       Serial.println("🔄 尝试重新连接Blynk...");
-      Blynk.connect();
+      if (!Blynk.connect(3000)) { // 设置3秒超时，避免长时间阻塞
+        Serial.println("❌ 重连失败，稍后将重试");
+      }
     }
   }
   
-  // 原本的循环代码
-  while (gpsSerial.available()) gps.encode(gpsSerial.read());
-
+  // 非阻塞方式读取GPS数据
+  unsigned int gpsReadCount = 0;
+  while (gpsSerial.available() && gpsReadCount < 10) { // 每次最多读取10个字节，避免阻塞
+    gps.encode(gpsSerial.read());
+    gpsReadCount++;
+  }
+  
   unsigned long now = millis();
+  
+  // 处理关机请求（非阻塞方式）
+  if (shutdownRequested) {
+    if (now - shutdownRequestTime >= SHUTDOWN_DELAY) {
+      // 时间到，执行关机
+      Serial.println("📡 Disconnecting WiFi...");
+      WiFi.disconnect(true);
+      
+      Serial.println("💤 Entering deep sleep mode. Restart ESP32 to wake up.");
+      esp_deep_sleep_start();
+    }
+  }
 
   if (now - lastBlynkUpdate > 5000) {
     isSomeoneSeated(); // 先调用读取压力值
@@ -425,10 +439,41 @@ bool isSomeoneSeated() {
 }
 
 
+// 添加非阻塞音频播放变量
+bool isPlayingAudio = false;
+unsigned long audioStartTime = 0;
+unsigned int audioIndex = 0;
+const unsigned int AUDIO_CHUNK_SIZE = 100; // 每次处理的音频样本数
+
+// 播放音频的非阻塞版本
 void playCompressedAudio() {
-  for (int i = 0; i < COMPRESSED_AUDIO_LENGTH; i++) {
-    dacWrite(25, compressedAudio[i]);
+  // 立即播放一小段，给用户快速反馈
+  for (int i = 0; i < 50; i++) {
+    dacWrite(25, compressedAudio[i % COMPRESSED_AUDIO_LENGTH]);
+    delayMicroseconds(500); // 快速播放前50个样本作为即时反馈
+  }
+  
+  // 设置非阻塞播放的状态
+  isPlayingAudio = true;
+  audioIndex = 0;
+  audioStartTime = millis();
+  Serial.println("🔊 开始播放音频（非阻塞模式）");
+}
+
+// 处理音频播放的非阻塞函数
+void handleAudioPlayback() {
+  if (!isPlayingAudio) return;
+  
+  // 每次处理一小块音频数据
+  for (int i = 0; i < AUDIO_CHUNK_SIZE && audioIndex < COMPRESSED_AUDIO_LENGTH; i++, audioIndex++) {
+    dacWrite(25, compressedAudio[audioIndex]);
     delayMicroseconds(1000000 / COMPRESSED_AUDIO_SAMPLE_RATE);
+  }
+  
+  // 检查是否播放完成
+  if (audioIndex >= COMPRESSED_AUDIO_LENGTH) {
+    isPlayingAudio = false;
+    Serial.println("🔊 音频播放完成");
   }
 }
 
