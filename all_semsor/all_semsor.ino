@@ -13,7 +13,7 @@
 #include <time.h>
 #include <math.h>
 #include <HTTPClient.h>
-#include "attention_audio_compressed.h"
+#include "compressed_audio.h"
 #include "esp32/rom/rtc.h"        // 添加RTC头文件以支持rtc_get_reset_reason
 
 void playCompressedAudio();
@@ -35,7 +35,7 @@ char pass[] = "12345678";
 #define WAKEUP_PIN 13  // 定义唤醒引脚，可以根据您的硬件配置进行调整
 
 // 定义音频变量
-extern const uint8_t attentionAudio[]; // 来自attention_audio_compressed.h，使用const节省内存
+extern const uint8_t compressedAudio[]; // 来自compressed_audio.h，使用更小的压缩音频
 
 // 全局非阻塞音频播放变量
 bool isPlayingAudio = false;
@@ -48,7 +48,7 @@ bool systemShutdown = false;  // 表示系统是否处于"关机"状态
 
 // 清除可能存在的旧宏定义
 #undef COMPRESSED_AUDIO_LENGTH
-#define COMPRESSED_AUDIO_LENGTH (sizeof(attentionAudio))
+#define COMPRESSED_AUDIO_LENGTH (sizeof(compressedAudio))
 
 // 定义一个简单的音频长度宏，方便使用
 #define AUDIO_LEN COMPRESSED_AUDIO_LENGTH
@@ -524,7 +524,7 @@ bool isSomeoneSeated() {
 void playCompressedAudio() {
   // 立即播放一小段，给用户快速反馈
   for (int i = 0; i < 50; i++) {
-    dacWrite(AUDIO_PIN, attentionAudio[i % AUDIO_LEN]);
+    dacWrite(AUDIO_PIN, compressedAudio[i % AUDIO_LEN]);
     delayMicroseconds(500); // 快速播放前50个样本作为即时反馈
   }
   
@@ -541,7 +541,7 @@ void handleAudioPlayback() {
   
   // 每次处理一小块音频数据
   for (int i = 0; i < AUDIO_CHUNK_SIZE && audioIndex < AUDIO_LEN; i++, audioIndex++) {
-    dacWrite(AUDIO_PIN, attentionAudio[audioIndex]);
+    dacWrite(AUDIO_PIN, compressedAudio[audioIndex]);
     delayMicroseconds(1000000 / COMPRESSED_AUDIO_SAMPLE_RATE);
   }
   
