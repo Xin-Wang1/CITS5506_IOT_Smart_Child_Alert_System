@@ -14,10 +14,11 @@ This project is a low-cost IoT-based system designed to detect a child's presenc
 | Breadboard & Jumper Wires  | Prototyping and component connections      | Provided              |
 
 Total Estimated Cost: **$88.80**
-    Note: Many components were sourced from the UWA Lab or provided by team members at no cost. 
+
+Note: Many components were sourced from the UWA Lab or provided by team members at no cost. 
 
 ### Wiring Instructions
-* Thin-Film Pressure Sensor: Connects to TTGO pin `GPIO 36`, power (+) to 5V, ground (-) to ground pin
+* Thin-Film Pressure Sensor: Connects to TTGO pin `GPIO 36`, power (+) to 3.3V, ground (-) to ground pin
 * Speaker: Connects to TTGO pin `GPIO 13`, power (V) to 5V, ground (G) to ground pin
 * Power Supply: Use a 5V USB power bank to power the TTGO T-Beam. This should also power the pressure sensor and the speaker 
 * GPS Module: Already integrated into the TTGO T-Beam (no wiring required)
@@ -81,10 +82,10 @@ To use it:
 
 ## System Operation
 1. Disconnect the system from your computer and instead use the portable power bank
-2. Turn on Personal Hotspot on smartphone and wait for system to connect via Wi-Fi. Your smartphone will show when a device has been connected to it. This should approximately take 5 seconds. 
+2. Turn on Personal Hotspot on smartphone and wait for system to connect via Wi-Fi. Your smartphone will show when a device has been connected to it. This should approximately take 5 seconds
 2. Since the code has already been uploaded, the system should automatically start working
 
-⚠️ Important: After powering on the device, move it outdoors or near a window to allow the GPS module to initialise. This may take up to 1–2 minutes during first use. The Bly
+⚠️ Important: After powering on the device, move it outdoors or near a window to allow the GPS module to initialise. This may take up to 1–2 minutes during first use.
 
 ### System Flow
 1. The load cell sensor and the GPS module should now be online. The sensor monitors the weight; GPS confirms if the vehicle is stationary
@@ -92,4 +93,7 @@ To use it:
     * **Stage 1:** Smartphone receives a critical alert by Blynk
     * **Stage 2:** If alert is not acknowledged in 20 seconds, onboard speaker activates
 3. Alerts reset when weight is removed or vehicle moves
+
+The system flowchart is shown below:
+![system flowchart](./flochart.png)
 
