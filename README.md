@@ -1,4 +1,4 @@
-# Smart Child Car Seat Alert System
+# *How To Guide* Smart Child Car Seat Alert System
 This project is a low-cost IoT-based system designed to detect a child's presence in a stationary car and trigger alerts through the Blynk application of the parents smartphone as well as through the onboard speaker.
 
 ## Hardware Setup
@@ -93,7 +93,8 @@ To use it:
     * **Stage 1:** Smartphone receives a critical alert by Blynk
     * **Stage 2:** If alert is not acknowledged in 20 seconds, onboard speaker activates
 3. Alerts reset when weight is removed or vehicle moves
-
+∏
 The system flowchart is shown below:
+
 ![system flowchart](./flowchart.png)
 
