@@ -95,5 +95,5 @@ To use it:
 3. Alerts reset when weight is removed or vehicle moves
 
 The system flowchart is shown below:
-![system flowchart](./flochart.png)
+![system flowchart](./flowchart.png)
 
