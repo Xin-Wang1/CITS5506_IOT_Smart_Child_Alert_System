@@ -95,7 +95,7 @@ To use it:
     * **Stage 1:** Smartphone receives a critical alert by Blynk
     * **Stage 2:** If alert is not acknowledged in 20 seconds, onboard speaker activates
 3. Alerts reset when weight is removed or vehicle moves
-∏
+
 The system flowchart is shown below:
 
 ![system flowchart](./flowchart.png)
