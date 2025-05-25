@@ -18,7 +18,7 @@ Total Estimated Cost: **$88.80**
 Note: Many components were sourced from the UWA Lab or provided by team members at no cost. 
 
 ### Wiring Instructions
-* Thin-Film Pressure Sensor: Connects to TTGO pin `GPIO 36`, power (+) to 3.3V, ground (-) to ground pin
+* Thin-Film Pressure Sensor: Connects to TTGO pin `GPIO 32`, power (+) to 3.3V, ground (-) to ground pin
 * Speaker: Connects to TTGO pin `GPIO 13`, power (V) to 5V, ground (G) to ground pin
 * Power Supply: Use a 5V USB power bank to power the TTGO T-Beam. This should also power the pressure sensor and the speaker 
 * GPS Module: Already integrated into the TTGO T-Beam (no wiring required)
@@ -48,6 +48,7 @@ The Blynk project has already been created and configured.
 To use it:
 1. Install the [Blynk IoT App](https://blynk.io/) for Android or iOS
 2. Log in using the provided account 
+
 3. The dashboard will automatically appear once the app syncs with the device
 4. Make sure notifications are enabled in your phone setting for Blynk
 ---
