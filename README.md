@@ -7,7 +7,7 @@ This project is a low-cost IoT-based system designed to detect a child's presenc
 | Component                   | Description                                | Estimated Cost (AUD) |
 |----------------------------|--------------------------------------------|-----------------------|
 | TTGO T-Beam                | Microcontroller with GPS and Wi-Fi         | $46.00                |
-| GPS Module (u-blox NEO-6M) | Monitors vehicle movement and location     | Integrated with TTGO  |
+| GPS Module (u-blox NEO-6M) | Monitors vehicle movement and location     | Integrated with TTGO ($7.40)  |
 | Thin-Film Pressure Sensor  | Detects child presence based on weight     | $8.90                 |
 | Audio Amplifier + Speaker  | Plays audible alert for bystanders         | $11.50                |
 | Power Bank                 | Provides independent power                 | $15.00                |
