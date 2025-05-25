@@ -48,8 +48,8 @@ The Blynk project has already been created and configured.
 To use it:
 1. Install the [Blynk IoT App](https://blynk.io/) for Android or iOS
 2. Log in using the provided account 
-    * Username: liu2425568@gmail.com
-    * Password: Ylj2425568#
+    * Username: 971333964@qq.com
+    * Password: password123
 3. The dashboard will automatically appear once the app syncs with the device
 4. Make sure notifications are enabled in your phone setting for Blynk
 ---
